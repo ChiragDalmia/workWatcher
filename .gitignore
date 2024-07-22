@@ -1,0 +1,31 @@
+# Build artifacts
+**/bin/
+**/obj/
+
+# Temporary files
+*.suo
+*.user
+*.IntFile
+
+# Visual Studio Code specific
+[VS Code]*.code-workspace
+
+# Visual Studio specific
+**/.vs/
+**/.vscode/
+
+# Testing frameworks
+**/TestResults/
+**/coverage/
+
+# NuGet packages
+**/packages/
+
+# Analyzer log files
+**/CodeAnalysisLog.xml
+
+# Ignore any user-specific dotnet ignore files
+!.editorconfig
+!**/.dotnet/ignore
+
+activity_log.csv
