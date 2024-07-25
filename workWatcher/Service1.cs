@@ -28,9 +28,11 @@ namespace workWatcher
             [DllImport("user32.dll")]
             public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
         }
+
         // Constants
         private const int MAX_TITLE_LENGTH = 256;
         private const string LOG_FILE_NAME = "activity_log.csv";
+        private const string LOG_FOLDER_NAME = "logs";
         private const int MIN_DURATION_SECONDS = 5;
         private const int MIN_CHECK_INTERVAL_MS = 1000;
         private const int MAX_CHECK_INTERVAL_MS = 5000;
@@ -53,29 +55,20 @@ namespace workWatcher
 
         protected override void OnStart(string[] args)
         {
-            EventLog.WriteEntry("WorkWatcher Service", "Service is starting...", EventLogEntryType.Information);
-
             activityTrackerThread = new Thread(RunActivityTracker);
             activityTrackerThread.IsBackground = true;
             activityTrackerThread.Start();
-
-            EventLog.WriteEntry("WorkWatcher Service", "Service started successfully.", EventLogEntryType.Information);
         }
-
 
         protected override void OnStop()
         {
-            EventLog.WriteEntry("WorkWatcher Service", "Service is stopping...", EventLogEntryType.Information);
-
             shouldStop = true;
             activityTrackerThread.Join(TimeSpan.FromSeconds(30)); // Wait for the thread to finish
-
-            EventLog.WriteEntry("WorkWatcher Service", "Service stopped successfully.", EventLogEntryType.Information);
         }
 
         private void RunActivityTracker()
         {
-            InitializeLogFile();
+            InitializeLogFile(GetLogFilePath());
 
             string lastWindowTitle = null;
             string lastProcessName = null;
@@ -115,11 +108,21 @@ namespace workWatcher
             Thread.Sleep(1000);
         }
 
-        private void InitializeLogFile()
+        private string GetLogFilePath()
         {
-            if (!File.Exists(LOG_FILE_NAME))
+            string logDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, LOG_FOLDER_NAME);
+            if (!Directory.Exists(logDirectory))
             {
-                File.WriteAllText(LOG_FILE_NAME, "StartTimestamp,EndTimestamp,Duration,ProcessName,WindowTitle\n");
+                Directory.CreateDirectory(logDirectory);
+            }
+            return Path.Combine(logDirectory, LOG_FILE_NAME);
+        }
+
+        private void InitializeLogFile(string logFilePath)
+        {
+            if (!File.Exists(logFilePath))
+            {
+                File.WriteAllText(logFilePath, "StartTimestamp,EndTimestamp,Duration,ProcessName,WindowTitle\n");
             }
         }
 
@@ -179,7 +182,7 @@ namespace workWatcher
                     return process.ProcessName;
                 }
             }
-            catch (ArgumentException)
+            catch
             {
                 return "Unknown";
             }
@@ -209,16 +212,7 @@ namespace workWatcher
             {
                 if (logQueue.TryDequeue(out string logEntry))
                 {
-                    try
-                    {
-                        RotateLogFileIfNeeded();
-                        File.AppendAllText(LOG_FILE_NAME, logEntry + Environment.NewLine);
-                    }
-                    catch (IOException ex)
-                    {
-                        EventLog.WriteEntry("WorkWatcher Service", $"Error writing to log file: {ex.Message}", EventLogEntryType.Error);
-                        LogError(ex);
-                    }
+                    WriteToLogFile(logEntry);
                 }
                 else
                 {
@@ -227,29 +221,30 @@ namespace workWatcher
             }
         }
 
-        private void RotateLogFileIfNeeded()
+        private void WriteToLogFile(string logEntry)
         {
-            var fileInfo = new FileInfo(LOG_FILE_NAME);
+            string logFilePath = GetLogFilePath();
+            try
+            {
+                RotateLogFileIfNeeded(logFilePath);
+                File.AppendAllText(logFilePath, logEntry + Environment.NewLine);
+            }
+            catch
+            {
+                // Silently catch any exceptions without logging
+            }
+        }
+
+        private void RotateLogFileIfNeeded(string logFilePath)
+        {
+            var fileInfo = new FileInfo(logFilePath);
             if (fileInfo.Exists && fileInfo.Length > LOG_ROTATION_SIZE_MB * 1024 * 1024)
             {
                 string timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
                 string newFileName = $"activity_log_{timestamp}.csv";
-                File.Move(LOG_FILE_NAME, newFileName);
-                InitializeLogFile();
-            }
-        }
-
-        private void LogError(Exception ex)
-        {
-            try
-            {
-                string errorLog = $"error_log_{DateTime.Now:yyyyMMdd}.txt";
-                string errorMessage = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}\n\n";
-                File.AppendAllText(errorLog, errorMessage);
-            }
-            catch
-            {
-                // If we can't even log the error, just swallow it to avoid crashing
+                string newFilePath = Path.Combine(Path.GetDirectoryName(logFilePath), newFileName);
+                File.Move(logFilePath, newFilePath);
+                InitializeLogFile(logFilePath);
             }
         }
     }
